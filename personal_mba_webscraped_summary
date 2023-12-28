@@ -1,0 +1,105 @@
+from bs4 import BeautifulSoup
+import requests
+import markdownify
+import time
+
+
+def get_sitemap():
+    sitemap_url = f"https://personalmba.com/sitemap/"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+    response = requests.get(sitemap_url,headers)
+    soup = BeautifulSoup(response.text,'lxml')
+    page_titles_tags = soup.findAll('loc')
+    page_urls = []
+    for title in page_titles_tags:
+        page_urls.append(title.get_text())
+    return page_urls
+
+
+def clean_titles(page_list):
+    item_pairs = []
+    for item in page_list:
+        split_text = item.split("/")
+        item_pairs.append([item,split_text[-2]])
+        print(f"{item} cleaned")
+    return item_pairs
+
+
+def extract_page_content(sitemap):
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+    specified_string = "Share this concept:"
+    chapter_pairs = {}
+    pages_remaining = len(sitemap)
+    for site in sitemap:
+        try:
+            print(f"Extracting from {site}")
+            page_url = site[0]
+            response = requests.get(page_url, headers)
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Find chapter number
+            chapter_div = soup.find('div', id="from-chapter")
+            chapter = chapter_div.getText().strip() if chapter_div else "Unknown Chapter"
+            
+            # Find content container
+            info_container = soup.find('div', class_="container")
+            
+            if info_container:
+                book_div = info_container.find('div', class_='book')
+                if book_div:
+                    book_div.decompose()
+                desired_tags = info_container.find_all(['h1', 'h2', 'h3', 'p', 'ul', 'blockquote'])
+                container_content = ""
+                for tag in desired_tags:
+                    if specified_string in tag.get_text() or tag.get_text().strip() == "":
+                        break
+                    container_content += markdownify.markdownify(str(tag))
+
+                page_info = {'url': page_url, 'content': container_content}
+
+                # Append page info to the corresponding chapter
+                if chapter not in chapter_pairs:
+                    chapter_pairs[chapter] = [page_info]
+                else:
+                    chapter_pairs[chapter].append(page_info)
+            else:
+                # Handle case where container not found
+                page_info = {'url': page_url, 'content': "Container not found"}
+                if chapter not in chapter_pairs:
+                    chapter_pairs[chapter] = [page_info]
+                else:
+                    chapter_pairs[chapter].append(page_info)
+            print("Extraction Complete")
+            pages_remaining = pages_remaining - 1
+            print(f"{pages_remaining} pages remaining")
+        except requests.exceptions.TooManyRedirects:
+            print(f"Too many redirects encountered for {page_url}. Skipping to next page.")
+            
+    return chapter_pairs
+
+
+def write_to_md(dictionary):
+    with open("Summary.md", "w", encoding='utf-8') as file:
+        for key, item in dictionary.items():
+            file.write(str(key).upper())
+            file.write("\n")
+            for content in item:
+                file.write(str(content['content']))
+                file.write('\n')
+                file.write('\n')
+
+def main():
+    sitemap = get_sitemap()
+    print("Sitemap Found")
+    time.sleep(1)
+    print("Cleaning titles....")
+    time.sleep(1)
+    test = clean_titles(sitemap)
+    print("Titles Cleaned")
+    print("Extracting Content...")
+    time.sleep(1)
+    content = extract_page_content(test)
+    write_to_md(content)
+
+if __name__ == "__main__":
+    main()
